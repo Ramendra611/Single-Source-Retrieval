@@ -25,8 +25,21 @@ COPY --from=builder /install /usr/local
 # Copy application source
 COPY app/ ./app/
 
-# Non-root user for security
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+# Create appuser with a real home directory (--system alone sets home=/nonexistent)
+RUN addgroup --system appgroup && \
+    adduser --system --ingroup appgroup --home /home/appuser appuser && \
+    mkdir -p /home/appuser/.cache/huggingface /app/faiss_index /app/logs /data/faiss_index /data/logs && \
+    chown -R appuser:appgroup /home/appuser /app /data
+
+# Tell HuggingFace where to cache models
+ENV HF_HOME=/home/appuser/.cache/huggingface
+
+# Pre-download models at build time so the container starts instantly
+RUN python -c "\
+from sentence_transformers import SentenceTransformer, CrossEncoder; \
+SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2'); \
+CrossEncoder('cross-encoder/ms-marco-MiniLM-L-6-v2')"
+
 USER appuser
 
 # Persistent volume mounts (FAISS index and logs)
