@@ -15,6 +15,7 @@ NOTE: Uses RAGAS 0.2.x API (EvaluationDataset + SingleTurnSample).
 
 import json
 import logging
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -120,7 +121,10 @@ def evaluate_rag(
 
 def _safe_float(value) -> float | None:
     try:
-        return round(float(value), 4)
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return round(f, 4)
     except (TypeError, ValueError):
         return None
 
