@@ -102,6 +102,7 @@ def evaluate_rag(
             embeddings=ragas_embeddings,
             raise_exceptions=False,
         )
+        
 
         scores = result.to_pandas().iloc[0].to_dict()
 

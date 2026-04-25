@@ -190,7 +190,7 @@ def run_rag(
         }
 
     # Stage 3 — re-ranking
-    top_docs = rerank(rewritten_query, candidates)
+    top_docs = rerank(rewritten_query, candidates) # response from the re-ranking
 
     # Stage 4 — generation
     context = _build_context(top_docs)

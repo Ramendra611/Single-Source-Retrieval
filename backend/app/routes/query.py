@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.post(
     "/query",
-    response_model=QueryResponse,
+    response_model=QueryResponse, #pydantic  model
     summary="Ask a question against ingested documents",
 )
 async def query_documents(payload: QueryRequest) -> QueryResponse:

@@ -48,6 +48,6 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def get_settings() -> Settings: # singleton pattern
     """Cached singleton — settings object is created once per process."""
     return Settings()

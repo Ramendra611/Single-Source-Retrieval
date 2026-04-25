@@ -148,5 +148,5 @@ async def text_to_speech(payload: TTSRequest) -> Response:
     return Response(
         content=wav_bytes,
         media_type="audio/wav",
-        headers={"Content-Disposition": "inline; filename=speech.wav"},
+        headers={"Content-Disposition": "attachment; filename=speech.wav"},
     )
