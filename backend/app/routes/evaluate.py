@@ -5,7 +5,9 @@ Trigger RAGAS evaluation on a previously generated answer.
 Metrics are returned in the response AND persisted to a JSONL log file.
 """
 
+import asyncio
 import logging
+from functools import partial
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -40,12 +42,16 @@ async def evaluate_output(payload: EvalRequest) -> EvalResponse:
         )
 
     try:
-        metrics_dict = evaluate_rag(
+        # Run in a separate thread so RAGAS can create its own event loop
+        # without conflicting with FastAPI's uvloop.
+        fn = partial(
+            evaluate_rag,
             question=payload.question,
             answer=payload.answer,
             contexts=payload.contexts,
             ground_truth=payload.ground_truth,
         )
+        metrics_dict = await asyncio.to_thread(fn)
     except Exception as exc:
         logger.exception("Evaluation endpoint error.")
         raise HTTPException(

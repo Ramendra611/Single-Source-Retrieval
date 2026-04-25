@@ -9,11 +9,13 @@ Metrics computed
 - context_recall     : (Requires ground_truth) Did we retrieve what was needed?
 
 Results are logged to both stdout (structlog) and a JSONL file for persistence.
+
+NOTE: Uses RAGAS 0.2.x API (EvaluationDataset + SingleTurnSample).
 """
 
 import json
 import logging
-import os
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -51,59 +53,50 @@ def evaluate_rag(
     Dict with metric names → float scores (None if metric could not be computed).
     """
     try:
-        from datasets import Dataset
-        from ragas import evaluate
-        from ragas.metrics import (
-            answer_relevancy,
-            context_precision,
-            faithfulness,
-        )
-
-        metrics_to_run = [faithfulness, answer_relevancy, context_precision]
-
-        # context_recall requires ground_truth
-        if ground_truth:
-            from ragas.metrics import context_recall
-            metrics_to_run.append(context_recall)
-
-        # Build a single-row HuggingFace Dataset (ragas input format)
-        data = {
-            "question": [question],
-            "answer": [answer],
-            "contexts": [contexts],
-        }
-        if ground_truth:
-            data["ground_truth"] = [ground_truth]
-
-        dataset = Dataset.from_dict(data)
+        from ragas import evaluate, EvaluationDataset
+        from ragas.dataset_schema import SingleTurnSample
+        from ragas.metrics import Faithfulness, AnswerRelevancy, ContextPrecision
+        from ragas.llms import LangchainLLMWrapper
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from langchain_openai import ChatOpenAI
+        from langchain_huggingface import HuggingFaceEmbeddings
 
         settings = get_settings()
 
-        # RAGAS uses LangChain under the hood; point it at our LLM + local embeddings
-        from langchain_openai import ChatOpenAI
-        from langchain_community.embeddings import HuggingFaceEmbeddings
-
-        ragas_llm = ChatOpenAI(
+        # Wrap LLM and embeddings for RAGAS 0.2.x
+        ragas_llm = LangchainLLMWrapper(ChatOpenAI(
             model=settings.chat_model,
             openai_api_key=settings.openrouter_api_key,
             openai_api_base=settings.openrouter_base_url,
             temperature=0,
-        )
-        ragas_embeddings = HuggingFaceEmbeddings(
+        ))
+        ragas_embeddings = LangchainEmbeddingsWrapper(HuggingFaceEmbeddings(
             model_name=settings.embedding_model,
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},
-        )
+        ))
 
-        result = evaluate(
-            dataset,
-            metrics=metrics_to_run,
-            llm=ragas_llm,
-            embeddings=ragas_embeddings,
-            raise_exceptions=False,
-        )
-        
+        # Build metrics list
+        metrics_to_run = [
+            Faithfulness(llm=ragas_llm),
+            AnswerRelevancy(llm=ragas_llm, embeddings=ragas_embeddings),
+            ContextPrecision(llm=ragas_llm),
+        ]
 
+        if ground_truth:
+            from ragas.metrics import ContextRecall
+            metrics_to_run.append(ContextRecall(llm=ragas_llm))
+
+        # Build RAGAS 0.2.x dataset
+        sample = SingleTurnSample(
+            user_input=question,
+            response=answer,
+            retrieved_contexts=contexts,
+            reference=ground_truth,
+        )
+        dataset = EvaluationDataset(samples=[sample])
+
+        result = evaluate(dataset=dataset, metrics=metrics_to_run)
         scores = result.to_pandas().iloc[0].to_dict()
 
         metrics = {
@@ -114,7 +107,7 @@ def evaluate_rag(
         }
 
     except Exception as exc:
-        logger.warning("RAGAS evaluation failed", error=str(exc))
+        logger.warning("RAGAS evaluation failed", error=str(exc), exc_info=True)
         metrics = {
             "faithfulness": None,
             "answer_relevancy": None,
@@ -128,7 +121,10 @@ def evaluate_rag(
 
 def _safe_float(value) -> float | None:
     try:
-        return round(float(value), 4)
+        f = float(value)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        return round(f, 4)
     except (TypeError, ValueError):
         return None
 
